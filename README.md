@@ -29,22 +29,22 @@ Está pensada para docentes y estudiantes de **Economía** o **Educación Financ
 
 1. Clona el repositorio:
    ```bash
-   git clone https://github.com/TuUsuario/edufin-planner.git
-   cd edufin-planner
+      git clone https://github.com/TuUsuario/edufin-planner.git
+      cd edufin-planner
    ```
 2. Crea y activa un entorno virtual:
   ```bash
-  python -m venv .venv
-  .\.venv\Scripts\activate
+     python -m venv .venv
+     .\.venv\Scripts\activate
   ```
 3. Instala las dependencias:
   ```bash
-pip install -r requirements.txt
+      pip install -r requirements.txt
   ```
 4. Ejecuta la aplicación:
-    ```bash
-streamlit run src/app.py
- ```
+   ```bash
+      streamlit run src/app.py
+    ```
 
 
 
