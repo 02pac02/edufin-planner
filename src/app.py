@@ -8,6 +8,13 @@ from calculators import (
     months_to_goal,
     simulate_retirement,
 )
+from simulations import monte_carlo_retirement
+from transactions import (
+    load_transactions,
+    monthly_summary,
+    category_summary,
+    income_expense_summary,
+)
 
 
 st.set_page_config(
@@ -25,7 +32,7 @@ st.markdown(
 st.sidebar.header("Navegación")
 module = st.sidebar.radio(
     "Selecciona módulo",
-    ["Resumen financiero", "Fondo de emergencia", "Jubilación"],
+    ["Resumen financiero", "Fondo de emergencia", "Jubilación", "Transacciones reales"],
 )
 
 
@@ -97,7 +104,6 @@ def show_cashflow_module():
         "dependiendo de objetivos y situación personal."
     )
 
-    # gráfico sencillo de distribución de ingresos
     labels = ["Gastos totales", "Ahorro"]
     values = [cashflow.total_expenses, max(cashflow.savings, 0)]
     df = pd.DataFrame({"Concepto": labels, "Importe": values})
@@ -276,8 +282,7 @@ def show_retirement_module():
             f"aproximadamente **{final_capital:,.2f} €**."
         )
 
-        # tiempo para llegar al objetivo
-        months, capital_when_goal = months_to_goal(
+        months, _ = months_to_goal(
             starting_capital=initial_capital,
             monthly_contribution=monthly_contribution,
             annual_return=annual_return,
@@ -295,8 +300,129 @@ def show_retirement_module():
                 f"Con las condiciones actuales, alcanzarías el objetivo de "
                 f"**{goal_capital:,.0f} €** en unos **{years:.1f} años**."
             )
+
+        st.divider()
+        st.subheader("Simulación Monte Carlo (escenarios aleatorios)")
+
+        run_mc = st.checkbox("Ejecutar simulación Monte Carlo avanzada")
+
+        if run_mc:
+            col_mc1, col_mc2 = st.columns(2)
+            with col_mc1:
+                volatility = st.slider(
+                    "Volatilidad anual (desviación estándar, %)",
+                    min_value=1.0,
+                    max_value=30.0,
+                    value=10.0,
+                    step=0.5,
+                )
+            with col_mc2:
+                n_sims = st.slider(
+                    "Número de simulaciones",
+                    min_value=200,
+                    max_value=2000,
+                    value=500,
+                    step=100,
+                )
+
+            years_invested = retirement_age - current_age
+            mc_df, stats = monte_carlo_retirement(
+                initial_capital=initial_capital,
+                monthly_contribution=monthly_contribution,
+                years=years_invested,
+                mean_return=annual_return,
+                std_return=volatility,
+                n_sims=n_sims,
+            )
+
+            st.write("Distribución de capital final en distintos escenarios de mercado:")
+            fig_hist = px.histogram(
+                mc_df,
+                x="final_capital",
+                nbins=40,
+                title="Distribución de capital final (Monte Carlo)",
+            )
+            st.plotly_chart(fig_hist, use_container_width=True)
+
+            p10 = stats["10%"]
+            p50 = stats["50%"]
+            p90 = stats["90%"]
+
+            col_s1, col_s2, col_s3 = st.columns(3)
+            col_s1.metric("Escenario pesimista (P10)", f"{p10:,.0f} €")
+            col_s2.metric("Escenario medio (P50)", f"{p50:,.0f} €")
+            col_s3.metric("Escenario optimista (P90)", f"{p90:,.0f} €")
+
+            st.caption(
+                "Los percentiles indican que, en el 10 % de los escenarios el capital final es igual o inferior "
+                "al valor P10, y en el 90 % de los escenarios es igual o inferior al valor P90."
+            )
     else:
         st.info("Configura los parámetros y pulsa **Simular jubilación**.")
+
+
+# --- MÓDULO 4: TRANSACCIONES REALES -----------------------------------------
+def show_transactions_module():
+    st.subheader("📂 Análisis de transacciones reales (CSV)")
+
+    st.markdown(
+        "Sube un archivo **CSV** con tus movimientos bancarios o una exportación de gastos. "
+        "La aplicación intentará detectar automáticamente las columnas de fecha, importe, descripción y categoría. "
+        "Formato recomendado: `date, description, amount, category`."
+    )
+
+    uploaded_file = st.file_uploader(
+        "Sube tu archivo CSV",
+        type=["csv"],
+        help="Por seguridad, el archivo solo se procesa en tu navegador / sesión actual.",
+    )
+
+    if not uploaded_file:
+        st.info("Aún no has subido ningún archivo. Prueba con un CSV de ejemplo de tus gastos.")
+        return
+
+    try:
+        df = load_transactions(uploaded_file)
+    except Exception as e:
+        st.error(
+            "No se ha podido leer el archivo. Revisa que tenga al menos columnas de **fecha** e **importe**.\n\n"
+            f"Detalle técnico: {e}"
+        )
+        return
+
+    st.success(f"Archivo cargado correctamente. Filas: {len(df)}")
+    with st.expander("Ver primeras filas del archivo"):
+        st.dataframe(df.head(20))
+
+    income, expenses, net = income_expense_summary(df)
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Ingresos totales", f"{income:,.2f} €")
+    col2.metric("Gastos totales", f"{expenses:,.2f} €")
+    col3.metric("Saldo neto", f"{net:,.2f} €")
+
+    st.divider()
+    st.subheader("Evolución mensual")
+
+    monthly = monthly_summary(df)
+    fig_month = px.bar(
+        monthly,
+        x="month",
+        y="net_amount",
+        title="Saldo neto por mes",
+    )
+    st.plotly_chart(fig_month, use_container_width=True)
+
+    st.subheader("Gastos por categoría")
+    categories = category_summary(df)
+    fig_cat = px.bar(
+        categories,
+        x="total",
+        y="category",
+        orientation="h",
+        title="Importe total por categoría",
+    )
+    st.plotly_chart(fig_cat, use_container_width=True)
 
 
 # --- ROUTER DE MÓDULOS ------------------------------------------------------
@@ -304,5 +430,7 @@ if module == "Resumen financiero":
     show_cashflow_module()
 elif module == "Fondo de emergencia":
     show_emergency_module()
-else:
+elif module == "Jubilación":
     show_retirement_module()
+else:
+    show_transactions_module()
